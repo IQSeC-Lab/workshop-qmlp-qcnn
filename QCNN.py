@@ -33,7 +33,7 @@ epochs = 20
 lr = 0.001
 w_decay = 1e-4
 
-data = np.load("dataset/2012_2013_filtered.npz")
+data = np.load("dataset/API_graph/2012_2013_filtered_40samplesMalware.npz")
 
 X = data["X"]
 y_raw = data["y_multilabel"]  # Use multiclass malware family labels
@@ -61,13 +61,13 @@ n_qubits = 16
 
 
 ##### Sim #####
-device = qml.device("default.qubit", wires=n_qubits)
+# dev = qml.device("lightning.tensor", wires=n_qubits)
+dev = qml.device("lightning.qubit", wires=n_qubits)
 
 @qml.qnode(dev, interface="torch")
 def qnode(inputs, conv1, entangle1, pool1, conv2, entangle2):
     # Encoding
-    for i in range(n_qubits):
-        qml.RX(inputs[i], wires=i)
+    qml.AngleEmbedding(inputs, wires=range(n_qubits))
 
     # --- Layer 1: conv + CRX entanglement ---
     for i in range(n_qubits):
@@ -106,12 +106,14 @@ class QuantumClassifier(nn.Module):
     def __init__(self):
         super().__init__()
         self.qlayer = qlayer
-        self.fc = nn.Linear(4, 10)
+        self.fc = nn.Linear(4, num_classes)
 
     def forward(self, x):
-        x = self.qlayer(x)
-        x = self.fc(x)
-        return F.log_softmax(x, dim=1)
+        out = self.qlayer(x)  # Batched input directly
+
+        out = self.fc(out)
+        return F.log_softmax(out, dim=1)
+
 
 model = QuantumClassifier()
 optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=w_decay)
