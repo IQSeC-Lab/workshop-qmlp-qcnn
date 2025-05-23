@@ -24,11 +24,11 @@ from pennylane.qnn import TorchLayer
 #################################################################################################
 torch.manual_seed(42)
 np.random.seed(42)
-
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 ###############################################################################################
 # Data preprocessing
 ###############################################################################################
-bsz = 64
+bsz = 32
 epochs = 20
 lr = 0.001
 w_decay = 1e-4
@@ -109,57 +109,93 @@ class QuantumClassifier(nn.Module):
         self.fc = nn.Linear(4, num_classes)
 
     def forward(self, x):
+        x = x.to(next(self.parameters()).device)
         out = self.qlayer(x)  # Batched input directly
-
         out = self.fc(out)
         return F.log_softmax(out, dim=1)
 
 
-model = QuantumClassifier()
-optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=w_decay)
-criterion = nn.NLLLoss()
+
+
 
 
 
 ##############################################################################
 # Training
 ##############################################################################
-best_loss = float('inf')
-patience, trials = 5, 0
-start_time = time.time()
-X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
-y_test_tensor = torch.tensor(y_test, dtype=torch.long)
-
-for epoch in range(epochs):
+def train(model, DEVICE, train_loader, optimizer, epoch):
     model.train()
-    total_loss = 0
-    for batch_X, batch_y in train_loader:
+    running_loss = 0.0
+    correct = 0.0
+    total = 0.0
+
+    for batch_idx, (inputs, target) in enumerate(train_loader, 0):
+        inputs, target = inputs.to(DEVICE), target.to(DEVICE)
         optimizer.zero_grad()
-        output = model(batch_X)
-        loss = criterion(output, batch_y)
+        outputs = model(inputs)
+        loss = F.nll_loss(outputs, target)
         loss.backward()
         optimizer.step()
-        total_loss += loss.item()
 
-    val_loss = total_loss / len(train_loader)
-    print(f"Epoch {epoch+1}, Loss: {val_loss:.4f}")
+        _, predicted = torch.max(outputs.data, dim=1)
+        total += target.size(0)
+        correct += (predicted == target).sum().item()
+        running_loss += loss.item()
 
-    if val_loss < best_loss:
-        best_loss = val_loss
-        trials = 0
-        best_model = model.state_dict()
-    else:
-        trials += 1
-        if trials >= patience:
-            print("Early stopping")
-            break
+        if (batch_idx + 1) % 10 == 0:
+            print(f"Epoch: {epoch}, Batch: {batch_idx+1}, Acc: {100 * correct / total:.2f}%, Loss: {running_loss / 10:.4f}")
+            running_loss = 0.0
+
+def test(model, DEVICE, test_loader):
+    model.eval()
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for inputs, labels in test_loader:
+            inputs, labels = inputs.to(DEVICE), labels.to(DEVICE)
+            outputs = model(inputs)
+            _, predicted = torch.max(outputs.data, dim=1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+    acc = 100 * correct / total
+    print(f"Accuracy on test set: {acc:.2f}%")
+    return acc
+
+
+
+
+
+##################################################################################
+# Main loop
+##################################################################################
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+best_acc = 0.0
+model = QuantumClassifier().to(device)
+optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=w_decay)
+start_time = time.time()
+
+for epoch in range(1, epochs + 1):
+    train(model, device, train_loader, optimizer, epoch)
+
+    acc = test(model, device, test_loader)
+    if acc > best_acc:
+        best_acc = acc
+        torch.save(model.state_dict(), "best_qcnn23fam.pt")
+
 
 end_time = time.time()
 print(f"Training Time: {end_time - start_time:.2f} seconds")
 
+
+######################################################################
+# Confusion amtrix and save
+#######################################################################
 # Evaluation
-model.load_state_dict(best_model)
+model.load_state_dict(torch.load("best_qcnn23fam.pt"))
 model.eval()
+
+X_test_tensor = torch.tensor(X_test, dtype=torch.float32).to(device)
+y_test_tensor = torch.tensor(y_test, dtype=torch.long).to(device)
 
 with torch.no_grad():
     output = model(X_test_tensor)
