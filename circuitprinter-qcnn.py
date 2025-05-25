@@ -13,8 +13,7 @@ dev = qml.device("default.qubit", wires=n_qubits)
 @qml.qnode(dev, interface="torch")
 def qnode(inputs, conv1, entangle1, pool1, conv2, entangle2):
     # Encoding
-    for i in range(n_qubits):
-        qml.RX(inputs[i], wires=i)
+    qml.AngleEmbedding(inputs, wires=range(n_qubits))
 
     # --- Layer 1: conv + CRX entanglement ---
     for i in range(n_qubits):
