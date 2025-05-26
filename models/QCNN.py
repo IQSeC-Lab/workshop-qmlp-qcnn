@@ -33,10 +33,10 @@ epochs = 20
 lr = 0.001
 w_decay = 1e-4
 
-data = np.load("dataset/API_graph/2012_2013_filtered_40samplesMalware.npz")
+data = np.load("../dataset/AZ-Class-Task/Family_AZ_Train_Transformed.npz")
 
-X = data["X"]
-y_raw = data["y_multilabel"]  # Use multiclass malware family labels
+X = data["X_train"]
+y_raw = data["Y_train"]  # Use multiclass malware family labels
 y = np.argmax(y_raw, axis=1)
 num_classes = y_raw.shape[1]
 
@@ -180,7 +180,7 @@ for epoch in range(1, epochs + 1):
     acc = test(model, device, test_loader)
     if acc > best_acc:
         best_acc = acc
-        torch.save(model.state_dict(), "best_qcnn23fam.pt")
+        torch.save(model.state_dict(), "best_qcnn14fam.pt")
 
 
 end_time = time.time()
@@ -191,29 +191,31 @@ print(f"Training Time: {end_time - start_time:.2f} seconds")
 # Confusion amtrix and save
 #######################################################################
 # Evaluation
-model.load_state_dict(torch.load("best_qcnn23fam.pt"))
-model.eval()
+# if os.path.exists("best_qcnn23fam.pt"):
+#     print("Loading previous model...")
+#     model.load_state_dict(torch.load("best_qcnn23fam.pt"))
+#     model.eval()
 
-X_test_tensor = torch.tensor(X_test, dtype=torch.float32).to(device)
-y_test_tensor = torch.tensor(y_test, dtype=torch.long).to(device)
+#     X_test_tensor = torch.tensor(X_test, dtype=torch.float32).to(device)
+#     y_test_tensor = torch.tensor(y_test, dtype=torch.long).to(device)
 
-with torch.no_grad():
-    output = model(X_test_tensor)
-    pred = output.argmax(dim=1)
-    true = y_test_tensor
-    acc = (pred == true).float().mean().item()
-    print(f"Test Accuracy: {acc * 100:.2f}%")
+#     with torch.no_grad():
+#         output = model(X_test_tensor)
+#         pred = output.argmax(dim=1)
+#         true = y_test_tensor
+#         acc = (pred == true).float().mean().item()
+#         print(f"Test Accuracy: {acc * 100:.2f}%")
 
-# Confusion matrix
-cm = confusion_matrix(true, pred)
-plt.figure(figsize=(10, 8))
-sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-            xticklabels=[f'Pred {i}' for i in range(num_classes)],
-            yticklabels=[f'True {i}' for i in range(num_classes)])
-plt.title("Confusion Matrix – Quantum Classifier")
-plt.xlabel("Predicted")
-plt.ylabel("True")
+#     # Confusion matrix
+#     cm = confusion_matrix(true, pred)
+#     plt.figure(figsize=(10, 8))
+#     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+#                 xticklabels=[f'Pred {i}' for i in range(num_classes)],
+#                 yticklabels=[f'True {i}' for i in range(num_classes)])
+#     plt.title("Confusion Matrix – Quantum Classifier")
+#     plt.xlabel("Predicted")
+#     plt.ylabel("True")
 
-plt.tight_layout()
-plt.savefig("confusion_matrix_qcnn.png", dpi=300)
+#     plt.tight_layout()
+#     plt.savefig("confusion_matrix_qcnn.png", dpi=300)
 # plt.show()
