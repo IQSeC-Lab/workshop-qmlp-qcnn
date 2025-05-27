@@ -10,3 +10,4 @@ __pycache__
 *.db
 *.sqlite
 dataset/
+dataset.tar.bz2
