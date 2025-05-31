@@ -28,51 +28,53 @@ w_decay = 1e-4
 
 
 ############################################################################################################################################################################
-# data = np.load("dataset/2012_2013_filtered_100samplesMalware.npz") # This is for 100 samples
-data = np.load("dataset/2012_2013_filtered_40samplesMalware.npz") # This is for 40 samples
-# data = np.load("dataset/2012_2013_filtered_500samplesMalware.npz") # This is for 500 samples
+
+data_train = np.load("../dataset/AZ-Class-Task/AZ-Class-Task_23_families_train.npz") 
+data_test = np.load("../dataset/AZ-Class-Task/AZ-Class-Task_23_families_test.npz") 
 
 
-X = data["X"]
-y_raw = data["y_multilabel"]  # Use multiclass malware family labels
-y = np.argmax(y_raw, axis=1)
-num_classes = y_raw.shape[1]
 
+X_train = data_train["X_train"]
+y_train_raw = data_train["Y_train"]
+# y_train = np.argmax(y_train_raw,axis=1)
+y_train = y_train_raw
+X_test = data_test["X_test"]
+y_test_raw = data_test["Y_test"]
+# y_test = np.argmax(y_test_raw, axis=1)
+y_test = y_test_raw
 
-if hasattr(X, "toarray"):
-    X = X.toarray()
+# num_classes = y_train_raw.shape[1]
+num_classes = len(np.unique(y_train_raw))
+# print(num_classes)
+
+if hasattr(X_train, "toarray"):
+    X_train = X_train.toarray()
+if hasattr(X_test, "toarray"):
+    X_test = X_test.toarray()
 
 # Normalize to [0, 1]
-X = MinMaxScaler().fit_transform(X)
+scaler = MinMaxScaler()
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
 
-# Reduce to 16 features for 16-qubit quantum circuit
-X = PCA(n_components=16).fit_transform(X)
-
-# Train/test split
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-# Convert to tensors
-# train_dataset = TensorDataset(torch.tensor(X_train, dtype=torch.float32), torch.tensor(y_train))
-# Take half of the training data
-# half_idx = len(X_train) // 2
-# X_train_half = X_train[:half_idx]
-# y_train_half = y_train[:half_idx]
+pca = PCA(n_components=16)
+X_train = pca.fit_transform(X_train)
+X_test = pca.transform(X_test)
 
 # Convert to tensors
 train_dataset = TensorDataset(
     torch.tensor(X_train, dtype=torch.float32),
     torch.tensor(y_train, dtype=torch.long)
 )
-
-
-test_dataset = TensorDataset(torch.tensor(X_test, dtype=torch.float32), torch.tensor(y_test))
-
-transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
-
+test_dataset = TensorDataset(
+    torch.tensor(X_test, dtype=torch.float32),
+    torch.tensor(y_test, dtype=torch.long)
+)
+# DataLoaders
 train_loader = DataLoader(train_dataset, shuffle=True, batch_size=bsz)
 test_loader = DataLoader(test_dataset, shuffle=False, batch_size=bsz)
 
-
+# print("going now to the quantum model")
 ###########################################################################################################################################################################
 noise_model = NoiseModel(basis_gates=['id', 'rz', 'sx', 'cx', 'x'])
 
