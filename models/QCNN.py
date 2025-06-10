@@ -24,7 +24,9 @@ from pennylane.qnn import TorchLayer
 #################################################################################################
 torch.manual_seed(42)
 np.random.seed(42)
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+device = torch.device('cpu')
+
 ###############################################################################################
 # Data preprocessing
 ###############################################################################################
@@ -32,32 +34,58 @@ bsz = 32
 epochs = 20
 lr = 0.001
 w_decay = 1e-4
+n_qubits = 16
 
-data = np.load("../dataset/AZ-Class-Task/Family_AZ_Train_Transformed.npz")
+# Change on every run
+best_model = "best_qcnn14fam.pt"
+name_confusionMatrix = "qcnn14fam-confmatrix.png"
+data_train = np.load("AZ-Class-Task/AZ-Class-Task_23_families_train.npz") 
+data_test = np.load("AZ-Class-Task/AZ-Class-Task_23_families_test.npz") 
 
-X = data["X_train"]
-y_raw = data["Y_train"]  # Use multiclass malware family labels
-y = np.argmax(y_raw, axis=1)
-num_classes = y_raw.shape[1]
 
 
-if hasattr(X, "toarray"):
-    X = X.toarray()
+X_train = data_train["X_train"]
+y_train_raw = data_train["Y_train"]
+# y_train = np.argmax(y_train_raw,axis=1)
+y_train = y_train_raw
+X_test = data_test["X_test"]
+y_test_raw = data_test["Y_test"]
+# y_test = np.argmax(y_test_raw, axis=1)
+y_test = y_test_raw
 
-X = MinMaxScaler().fit_transform(X)
-X = PCA(n_components=16).fit_transform(X)
+# num_classes = y_train_raw.shape[1]
+num_classes = len(np.unique(y_train_raw))
+# print(num_classes)
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+if hasattr(X_train, "toarray"):
+    X_train = X_train.toarray()
+if hasattr(X_test, "toarray"):
+    X_test = X_test.toarray()
+
+# Normalize to [0, 1]
+scaler = MinMaxScaler()
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
+
+pca = PCA(n_components=16)
+X_train = pca.fit_transform(X_train)
+X_test = pca.transform(X_test)
 
 # Convert to tensors
-train_dataset = TensorDataset(torch.tensor(X_train, dtype=torch.float32), torch.tensor(y_train))
-test_dataset = TensorDataset(torch.tensor(X_test, dtype=torch.float32), torch.tensor(y_test))
-
+train_dataset = TensorDataset(
+    torch.tensor(X_train, dtype=torch.float32),
+    torch.tensor(y_train, dtype=torch.long)
+)
+test_dataset = TensorDataset(
+    torch.tensor(X_test, dtype=torch.float32),
+    torch.tensor(y_test, dtype=torch.long)
+)
+# DataLoaders
 train_loader = DataLoader(train_dataset, shuffle=True, batch_size=bsz)
 test_loader = DataLoader(test_dataset, shuffle=False, batch_size=bsz)
 
 ###############################################################################################
-n_qubits = 16
+
 
 
 ##### Sim #####
@@ -114,12 +142,6 @@ class QuantumClassifier(nn.Module):
         out = self.fc(out)
         return F.log_softmax(out, dim=1)
 
-
-
-
-
-
-
 ##############################################################################
 # Training
 ##############################################################################
@@ -161,14 +183,10 @@ def test(model, DEVICE, test_loader):
     print(f"Accuracy on test set: {acc:.2f}%")
     return acc
 
-
-
-
-
 ##################################################################################
 # Main loop
 ##################################################################################
-# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 best_acc = 0.0
 model = QuantumClassifier().to(device)
 optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=w_decay)
@@ -180,7 +198,7 @@ for epoch in range(1, epochs + 1):
     acc = test(model, device, test_loader)
     if acc > best_acc:
         best_acc = acc
-        torch.save(model.state_dict(), "best_qcnn14fam.pt")
+        torch.save(model.state_dict(), best_model)
 
 
 end_time = time.time()
@@ -191,31 +209,27 @@ print(f"Training Time: {end_time - start_time:.2f} seconds")
 # Confusion amtrix and save
 #######################################################################
 # Evaluation
-# if os.path.exists("best_qcnn23fam.pt"):
-#     print("Loading previous model...")
-#     model.load_state_dict(torch.load("best_qcnn23fam.pt"))
-#     model.eval()
+if os.path.exists(best_model):
+    print("Loading previous model...")
+    model.load_state_dict(torch.load(best_model))
+    model.eval()
+    X_test_tensor = torch.tensor(X_test, dtype=torch.float32).to(device)
+    y_test_tensor = torch.tensor(y_test, dtype=torch.long).to(device)
+    with torch.no_grad():
+        output = model(X_test_tensor)
+        pred = output.argmax(dim=1)
+        true = y_test_tensor
+        acc = (pred == true).float().mean().item()
+        print(f"Test Accuracy: {acc * 100:.2f}%")
+    # Confusion matrix
+    cm = confusion_matrix(true, pred)
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=[f'Pred {i}' for i in range(num_classes)],
+                yticklabels=[f'True {i}' for i in range(num_classes)])
+    plt.title("Confusion Matrix – Quantum Classifier")
+    plt.xlabel("Predicted")
+    plt.ylabel("True")
+    plt.tight_layout()
+    plt.savefig(name_confusionMatrix, dpi=300)
 
-#     X_test_tensor = torch.tensor(X_test, dtype=torch.float32).to(device)
-#     y_test_tensor = torch.tensor(y_test, dtype=torch.long).to(device)
-
-#     with torch.no_grad():
-#         output = model(X_test_tensor)
-#         pred = output.argmax(dim=1)
-#         true = y_test_tensor
-#         acc = (pred == true).float().mean().item()
-#         print(f"Test Accuracy: {acc * 100:.2f}%")
-
-#     # Confusion matrix
-#     cm = confusion_matrix(true, pred)
-#     plt.figure(figsize=(10, 8))
-#     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-#                 xticklabels=[f'Pred {i}' for i in range(num_classes)],
-#                 yticklabels=[f'True {i}' for i in range(num_classes)])
-#     plt.title("Confusion Matrix – Quantum Classifier")
-#     plt.xlabel("Predicted")
-#     plt.ylabel("True")
-
-#     plt.tight_layout()
-#     plt.savefig("confusion_matrix_qcnn.png", dpi=300)
-# plt.show()
