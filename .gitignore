@@ -12,5 +12,6 @@ __pycache__
 dataset/
 dataset.tar.bz2
 .pt
-results/QCNN/z-saved-models/AZ/*.pt
-results/QMLP/z-saved-models/AZ/*.pt
+
+results/QCNN/z-saved-models/
+results/QMLP/z-saved-models/
