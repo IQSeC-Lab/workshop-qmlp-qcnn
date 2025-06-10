@@ -1,5 +1,6 @@
 
 import os
+# os.environ["CUDA_VISIBLE_DEVICES"] = "3"  only if running it on the server
 import time
 import numpy as np
 import matplotlib.pyplot as plt
@@ -25,22 +26,19 @@ from pennylane.qnn import TorchLayer
 torch.manual_seed(42)
 np.random.seed(42)
 
-device = torch.device('cpu')
+bsz = 64
+epochs = 20
+lr = 0.001
+w_decay = 1e-4
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 ###############################################################################################
 # Data preprocessing
 ###############################################################################################
-bsz = 32
-epochs = 20
-lr = 0.001
-w_decay = 1e-4
-n_qubits = 16
-
-# Change on every run
-best_model = "best_qcnn14fam.pt"
-name_confusionMatrix = "qcnn14fam-confmatrix.png"
-data_train = np.load("AZ-Class-Task/AZ-Class-Task_23_families_train.npz") 
-data_test = np.load("AZ-Class-Task/AZ-Class-Task_23_families_test.npz") 
+best_model = "qcnn-ember23-run3-mod.pt"
+cm_name= "cm_qcnn-ember23-run3-mod.png"
+data_train = np.load("dataset/Ember-Class-100class/Ember-Class-100class_23_families_train.npz") 
+data_test = np.load("dataset/Ember-Class-100class/Ember-Class-100class_23_families_test.npz") 
 
 
 
@@ -85,15 +83,15 @@ train_loader = DataLoader(train_dataset, shuffle=True, batch_size=bsz)
 test_loader = DataLoader(test_dataset, shuffle=False, batch_size=bsz)
 
 ###############################################################################################
-
+n_qubits = 16
 
 
 ##### Sim #####
-# dev = qml.device("lightning.tensor", wires=n_qubits)
-dev = qml.device("lightning.qubit", wires=n_qubits)
+dev = qml.device("default.qubit", wires=n_qubits)
+# dev = qml.device("lightning.qubit", wires=n_qubits)
 
 @qml.qnode(dev, interface="torch")
-def qnode(inputs, conv1, entangle1, pool1, conv2, entangle2):
+def qnode(inputs, conv1, entangle1, pool1, conv2, entangle2, pool2):
     # Encoding
     qml.AngleEmbedding(inputs, wires=range(n_qubits))
 
@@ -104,27 +102,45 @@ def qnode(inputs, conv1, entangle1, pool1, conv2, entangle2):
         qml.CRX(entangle1[i][0], wires=[i, (i + 1) % n_qubits])
 
     # --- Pooling: keep even qubits ---
-    kept = list(range(0, n_qubits, 2))  # 0, 2, ..., 14
-    for i, w in enumerate(kept):
+    qubits_l1 = list(range(0, n_qubits, 2))  # 0, 2, ..., 14
+    for i, w in enumerate(qubits_l1):
         qml.Rot(*pool1[i], wires=w)
 
     # --- Layer 2: conv + CRX entanglement on 8 qubits ---
-    for i, w in enumerate(kept):
+    for i, w in enumerate(qubits_l1):
         qml.Rot(*conv2[i], wires=w)
-    for i in range(len(kept)):
-        qml.CRX(entangle2[i][0], wires=[kept[i], kept[(i + 1) % len(kept)]])
+    for i in range(len(qubits_l1)):
+        qml.CRX(entangle2[i][0], wires=[qubits_l1[i], qubits_l1[(i + 1) % len(qubits_l1)]])
+    qubits_l2 = list(range(0, len(qubits_l1), 2)) 
+    for i, w in enumerate([qubits_l1[j] for j in qubits_l2]):
+        qml.Rot(*pool2[i], wires=w)
+    final_qubits = [qubits_l1[j] for j in qubits_l2]
+    return [qml.expval(qml.PauliZ(q)) for q in final_qubits]
 
-    # Output from 1 qubit (e.g., qubit 0)
-    return [qml.expval(qml.PauliZ(q)) for q in kept[:4]]
 
+n_qubits = 16
 
 weight_shapes = {
-    "conv1": (16, 3),        
-    "entangle1": (16, 1),   
-    "pool1": (8, 3),         
-    "conv2": (8, 3),         
-    "entangle2": (8, 1),    
+    "conv1": (n_qubits, 3),              # 16
+    "entangle1": (n_qubits, 1),          # 16
+    "pool1": (n_qubits // 2, 3),         # 8
+
+    "conv2": (n_qubits // 2, 3),         # 8
+    "entangle2": (n_qubits // 2, 1),     # 8
+    "pool2": (n_qubits // 4, 3),         # 4
+
+    # "conv3": (n_qubits // 4, 3),         # 4
+    # "entangle3": (n_qubits // 4, 1),     # 4
+    # "pool3": (n_qubits // 8, 3),         # 2
+
+    # "conv4": (n_qubits // 8, 3),         # 2
+    # "entangle4": (n_qubits // 8, 1),     # 2
+    # "pool4": (n_qubits // 16, 3),        # 1
+
+    # "conv5": (n_qubits // 16, 3),        # 1
+    # "entangle5": (n_qubits // 16, 1),    # 1
 }
+
 
 
 qlayer = TorchLayer(qnode, weight_shapes)
@@ -141,6 +157,7 @@ class QuantumClassifier(nn.Module):
         out = self.qlayer(x)  # Batched input directly
         out = self.fc(out)
         return F.log_softmax(out, dim=1)
+
 
 ##############################################################################
 # Training
@@ -183,24 +200,24 @@ def test(model, DEVICE, test_loader):
     print(f"Accuracy on test set: {acc:.2f}%")
     return acc
 
+
+
+
+
 ##################################################################################
 # Main loop
 ##################################################################################
-
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 best_acc = 0.0
 model = QuantumClassifier().to(device)
 optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=w_decay)
 start_time = time.time()
-
 for epoch in range(1, epochs + 1):
     train(model, device, train_loader, optimizer, epoch)
-
     acc = test(model, device, test_loader)
     if acc > best_acc:
         best_acc = acc
         torch.save(model.state_dict(), best_model)
-
-
 end_time = time.time()
 print(f"Training Time: {end_time - start_time:.2f} seconds")
 
@@ -213,16 +230,21 @@ if os.path.exists(best_model):
     print("Loading previous model...")
     model.load_state_dict(torch.load(best_model))
     model.eval()
+
     X_test_tensor = torch.tensor(X_test, dtype=torch.float32).to(device)
     y_test_tensor = torch.tensor(y_test, dtype=torch.long).to(device)
+
     with torch.no_grad():
         output = model(X_test_tensor)
         pred = output.argmax(dim=1)
         true = y_test_tensor
         acc = (pred == true).float().mean().item()
         print(f"Test Accuracy: {acc * 100:.2f}%")
+
     # Confusion matrix
-    cm = confusion_matrix(true, pred)
+    # cm = confusion_matrix(true, pred)
+    cm = confusion_matrix(true.cpu().numpy(), pred.cpu().numpy())
+
     plt.figure(figsize=(10, 8))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
                 xticklabels=[f'Pred {i}' for i in range(num_classes)],
@@ -230,6 +252,8 @@ if os.path.exists(best_model):
     plt.title("Confusion Matrix – Quantum Classifier")
     plt.xlabel("Predicted")
     plt.ylabel("True")
-    plt.tight_layout()
-    plt.savefig(name_confusionMatrix, dpi=300)
 
+    plt.tight_layout()
+    plt.savefig(cm_name, dpi=300)
+else:
+    print(f'{best_model} not found')
