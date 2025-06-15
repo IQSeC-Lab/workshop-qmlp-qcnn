@@ -1,0 +1,10 @@
+=== Evaluation Metrics ===
+Accuracy:         0.9595
+Loss:             0.1095
+Precision (macro):0.9142
+Recall (macro):   0.8392
+F1 Score (macro): 0.8751
+FPR (macro):      0.1608
+FNR (macro):      0.1608
+ROC-AUC (macro):  0.9719
+PR-AUC (macro):   0.8542
