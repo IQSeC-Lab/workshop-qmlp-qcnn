@@ -1,6 +1,5 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "2" # setting
-
+os.environ["CUDA_VISIBLE_DEVICES"] = "1" # setting
 import pennylane as qml
 from pennylane import numpy as np
 from pennylane.optimize import AdamOptimizer, GradientDescentOptimizer
@@ -36,28 +35,33 @@ w_decay = 1e-4
 
 
 
-best_model = "qmlp-APIB-run3-mod.pt"
-cm_name= "cm_qmlp-APIB-run3-mod.png"
-filename = "qmlp-APIB-run3.txt"
+best_model = "qmlp-API23-run3-mod.pt"
+cm_name= "cm_qmlp-API23-run3-mod.png"
+filename = "qmlp-API23-run3.txt"
 ############################################################################################################################################################################
 
-data_train = np.load("../dataset/API_graph/binary_train_dataset-APIgraph.npz") 
-data_test = np.load("../dataset/API_graph/binary_test_dataset-APIgraph.npz") 
+data_train = np.load("../dataset/API_graph/APIgraph_train23-fam.npz") 
+data_test = np.load("../dataset/API_graph/APIgraph_test23-fam.npz") 
 
-
-
+# API Graph
 X_train = data_train["X"]
-y_train_raw = data_train["y"]
-y_train = y_train_raw
-
-
+y_train_raw = data_train["y_multilabel"]
 X_test = data_test["X"]
-y_test_raw = data_test["y"]
-y_test = y_test_raw
+y_test_raw = data_test["y_multilabel"]
+y_train = np.argmax(y_train_raw, axis=1)
+y_test = np.argmax(y_test_raw, axis=1)
 
-num_classes = len(np.unique(y_train))
-print(f'number of classes {num_classes}')
+# Ember and AZ
+# X_train = data_train["X_train"]
+# y_train_raw = data_train["Y_train"]
+# y_train = y_train_raw
+# X_test = data_test["X_test"]
+# y_test_raw = data_test["Y_test"]
+# y_test = y_test_raw
 
+num_classes = len(np.unique(y_train))  
+
+# num_classes = len(np.unique(y_train_raw))
 
 if hasattr(X_train, "toarray"):
     X_train = X_train.toarray()
@@ -86,17 +90,8 @@ test_dataset = TensorDataset(
 train_loader = DataLoader(train_dataset, shuffle=True, batch_size=bsz)
 test_loader = DataLoader(test_dataset, shuffle=False, batch_size=bsz)
 
-# print("going now to the quantum model")
 ###########################################################################################################################################################################
-noise_model = NoiseModel(basis_gates=['id', 'rz', 'sx', 'cx', 'x'])
 
-# phase flip
-p = 0.01
-phaseflip = noise.pauli_error([('Z', p), ('I', 1-p)])
-phaseflip2 = noise.pauli_error([('Z', p), ('I', 1-p)])
-noisemy = phaseflip.tensor(phaseflip2)
-noise_model.add_all_qubit_quantum_error(phaseflip, ['id', 'rz', 'sx', 'x'])
-noise_model.add_all_qubit_quantum_error(noisemy, ['cx'])
 
 ###########################################################################################################################################################################
 n_qubits = 16
@@ -105,15 +100,18 @@ n_qubits = 16
 
 dev = qml.device("default.qubit", wires=n_qubits)      # w/o noise
 
+
 @qml.qnode(dev, interface="torch")
 def qnode(inputs,rot_l1,crx_l1,rot_l2 ,crx_l2):
-    
+    # Layer 1 — Data reuploading + trainable Rot + entanglement
+
     qml.AngleEmbedding(inputs, wires=range(n_qubits))
     for i in range(16):
         qml.Rot(*rot_l1[i], wires=i)
     for i in range(16):
         qml.CRX(crx_l1[i][0], wires=[i, (i + 1) % 16])
 
+    # Layer 2 — Data reuploading again + Rot + CRX
     qml.AngleEmbedding(inputs, wires=range(n_qubits))
     for i in range(16):
         qml.Rot(*rot_l2[i], wires=i)
@@ -189,9 +187,8 @@ def test(model, DEVICE, test_loader):
 
 ###########################################################################################################################################################################
 best_acc = 0.0
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = drebin().to(device)
-
 
 ################################################################################################
 optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=w_decay)
@@ -222,16 +219,7 @@ if os.path.exists(best_model):
     print("Loading previous model...")
     model.load_state_dict(torch.load(best_model))
     model.eval()
-
-    # X_test_tensor = torch.tensor(X_test, dtype=torch.float32).to(device)
     y_test_tensor = torch.tensor(y_test, dtype=torch.long).to(device)
-
-    # with torch.no_grad():
-    #     output = model(X_test_tensor)
-    #     pred = output.argmax(dim=1)
-    #     true = y_test_tensor
-    #     acc = (pred == true).float().mean().item()
-    #     print(f"Test Accuracy: {acc * 100:.2f}%")
     outputs = []
     y_true = []
 
@@ -245,6 +233,13 @@ if os.path.exists(best_model):
 
     output = torch.cat(outputs, dim=0)
     true = torch.cat(y_true, dim=0)
+
+    num_classes = output.shape[1]
+    min_label = true.min().item()
+    max_label = true.max().item()
+    print(f"Label range: {min_label} to {max_label}, num_classes: {num_classes}")
+
+    
     pred = output.argmax(dim=1)
     acc = (pred == true).float().mean().item()
 
@@ -264,7 +259,8 @@ if os.path.exists(best_model):
     f1_macro = 2 * (precision_macro * recall_macro) / (precision_macro + recall_macro + 1e-8)
     fpr_macro = np.mean(FP / (FP + TN + 1e-8))
     fnr_macro = np.mean(FN / (FN + TP + 1e-8))
-    test_loss = F.nll_loss(output, y_test_tensor).item()
+    test_loss = F.nll_loss(output, true).item()
+
 
     if num_classes == 2:
         roc_auc = roc_auc_score(y_true, probs[:, 1])
