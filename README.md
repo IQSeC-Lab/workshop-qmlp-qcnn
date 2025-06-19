@@ -1,4 +1,4 @@
-# workshop-qmlp-qcnn
+# Quantum Machine Learning for malware classification
 
 In this research, we developed and evaluated Quantum Machine Learning (QML) models for malware classification, specifically focusing on the Quantum Multilayer Perceptron (QMLP) and the Quantum Convolutional Neural Network (QCNN).
 
