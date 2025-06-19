@@ -1,4 +1,4 @@
-# Quantum Machine Learning for malware classification
+# Towards Quantum Machine Learning for Malicious Code Analysis
 
 In this research, we developed and evaluated Quantum Machine Learning (QML) models for malware classification tasks. The models developed include the Quantum Multilayer Perceptron (QMLP) and the Quantum Convolutional Neural Network (QCNN), developed using the PennyLane and PyTorch frameworks.
 
@@ -11,6 +11,7 @@ For this research the datasets used were:
 - AZ-Domain
 - Ember-Class-Task
 - Ember Domain
+  
 Each dataset was preprocessed and transformed for compatibility with hybrid classical-quantum architectures.
 
 ## Models
