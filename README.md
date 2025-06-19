@@ -12,6 +12,13 @@ For this research the datasets used were:
 - Ember-Class-Task
 - Ember Domain
 Each dataset was preprocessed and transformed for compatibility with hybrid classical-quantum architectures.
+
+## Models
+### Quantum MLP circuit
+![Image representing qmlp model](data/qmlp-circuit.png)
+### Quantum CNN circuit
+![Image representing qcnn model](data/QCNN.png)
+
 ## Reproducibility
 
 ### System requirements:
@@ -22,7 +29,7 @@ The following system requirements are necessary for the code to run:
 - Python: 3.10.18
 - PennyLane: 0.41.1
 - PyTorch: 2.7.1
-- RAM: ≥32gb **recommended**
+- RAM: ≥16gb **recommended**
 
 ### Enviroment setup
 To set up the conda enviroment used, run the following lines of code:
